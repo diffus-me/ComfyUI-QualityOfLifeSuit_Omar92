@@ -18,48 +18,51 @@ import comfy.sd
 import comfy.utils
 import torch.nn as nn
 
+import execution_context
+import folder_paths
+
 MAX_RESOLUTION = 8192
 
-# region INSTALLATION CLEANUP (thanks WAS i got this from you)
-# Delete legacy nodes
-legacy_nodes = ['ChatGPT_Omar92.py',
-                'LatentUpscaleMultiply_Omar92.py', 'StringSuit_Omar92.py']
-legacy_nodes_found = []
-f_disp = False
-for f in legacy_nodes:
-    node_path_dir = os.getcwd()+'./custom_nodes/'
-    file = f'{node_path_dir}{f}'
-    if os.path.exists(file):
-        import zipfile
-        if not f_disp:
-            print(
-                '\033[33mQualityOflife Node Suite:\033[0m Found legacy nodes. Archiving legacy nodes...')
-            f_disp = True
-        legacy_nodes_found.append(file)
-if legacy_nodes_found:
-    from os.path import basename
-    archive = zipfile.ZipFile(
-        f'{node_path_dir}QualityOflife_Backup_{round(time.time())}.zip', "w")
-    for f in legacy_nodes_found:
-        archive.write(f, basename(f))
-        try:
-            os.remove(f)
-        except OSError:
-            pass
-    archive.close()
-if f_disp:
-    print('\033[33mQualityOflife Node Suite:\033[0m Legacy cleanup complete.')
-# endregion
+# # region INSTALLATION CLEANUP (thanks WAS i got this from you)
+# # Delete legacy nodes
+# legacy_nodes = ['ChatGPT_Omar92.py',
+#                 'LatentUpscaleMultiply_Omar92.py', 'StringSuit_Omar92.py']
+# legacy_nodes_found = []
+# f_disp = False
+# for f in legacy_nodes:
+#     node_path_dir = os.getcwd()+'./custom_nodes/'
+#     file = f'{node_path_dir}{f}'
+#     if os.path.exists(file):
+#         import zipfile
+#         if not f_disp:
+#             print(
+#                 '\033[33mQualityOflife Node Suite:\033[0m Found legacy nodes. Archiving legacy nodes...')
+#             f_disp = True
+#         legacy_nodes_found.append(file)
+# if legacy_nodes_found:
+#     from os.path import basename
+#     archive = zipfile.ZipFile(
+#         f'{node_path_dir}QualityOflife_Backup_{round(time.time())}.zip', "w")
+#     for f in legacy_nodes_found:
+#         archive.write(f, basename(f))
+#         try:
+#             os.remove(f)
+#         except OSError:
+#             pass
+#     archive.close()
+# if f_disp:
+#     print('\033[33mQualityOflife Node Suite:\033[0m Legacy cleanup complete.')
+# # endregion
 
 # region global
 PACKAGE_NAME = '\033[33mQualityOfLifeSuit_Omar92:\033[0m'
 NODE_FILE = os.path.abspath(__file__)
-SUIT_DIR = (os.path.dirname(os.path.dirname(NODE_FILE))
+O_SUIT_DIR = (os.path.dirname(os.path.dirname(NODE_FILE))
             if os.path.dirname(os.path.dirname(NODE_FILE)) == 'QualityOfLifeSuit_Omar92'
             or os.path.dirname(os.path.dirname(NODE_FILE)) == 'QualityOfLifeSuit_Omar92-dev'
             else os.path.dirname(NODE_FILE))
-SUIT_DIR = os.path.normpath(os.path.join(SUIT_DIR, '..'))
-print(f'\033[33mQualityOfLifeSuit_Omar92_DIR:\033[0m {SUIT_DIR}')
+O_SUIT_DIR = os.path.normpath(os.path.join(O_SUIT_DIR, '..'))
+print(f'\033[33mQualityOfLifeSuit_Omar92_DIR:\033[0m {O_SUIT_DIR}')
 
 
 def enforce_mul_of_64(d):
@@ -87,13 +90,28 @@ def install_openai():
         pip.main(['install', 'openai'])
 
 
-def get_api_key():
+def get_config(context: execution_context.ExecutionContext):
+    configPath = os.path.join(folder_paths.get_user_directory(context.user_hash), "config.json")
+    if not configPath:
+        # create config file
+        config = {
+            "autoUpdate": False,
+            "branch": "dev",
+            "openAI_API_Key": "sk-#########################################"
+        }
+        with open(os.path.join(configPath), "w") as f:
+            json.dump(config, f, indent=4)
+            return config
+    else:
+        with open(configPath, "r") as f:
+            config = json.load(f)
+            return config
+
+def get_api_key(context: execution_context.ExecutionContext):
     # Helper function to get the API key from the file
     try:
         # open config file
-        configPath = os.path.join(SUIT_DIR, "config.json")
-        with open(configPath, 'r') as f:  # Open the file and read the API key
-            config = json.load(f)
+        config = get_config(context)
         api_key = config["openAI_API_Key"]
     except:
         print("Error: OpenAI API key file not found OpenAI features wont work for you")
@@ -146,7 +164,7 @@ def get_init_message(isTags=False):
 
 openAI_gpt_models = ['@cf/meta/llama-2-7b-chat-int8', 'gpt-3.5-turbo']
 
-def get_openAI_models():
+def get_openAI_models(context: execution_context.ExecutionContext):
     global openAI_models
     if (openAI_models != None):
         return openAI_models
@@ -154,7 +172,7 @@ def get_openAI_models():
     install_openai()
     from openai import OpenAI
     # Get the API key from the file
-    api_key = get_api_key()
+    api_key = get_api_key(context)
     client = OpenAI(
                 # This is the default and can be omitted
                 api_key=api_key,
@@ -177,11 +195,11 @@ def get_openAI_models():
 
 
 
-def get_gpt_models():
+def get_gpt_models(context: execution_context.ExecutionContext):
     global openAI_gpt_models
     if (openAI_gpt_models != None):
         return openAI_gpt_models
-    models = get_openAI_models()
+    models = get_openAI_models(context=context)
     openAI_gpt_models = ["gpt-3.5-turbo"]  # Create a list for the chat models
     for model in models:  # Loop through the models
         if ("gpt" in model.lower()):
@@ -196,16 +214,19 @@ class O_ChatGPT_O:
     """
     # Define the input types for the node
     @classmethod
-    def INPUT_TYPES(cls):
+    def INPUT_TYPES(cls, context: execution_context.ExecutionContext):
         return {
             "required": {
                 # Multiline string input for the prompt
                 "prompt": ("STRING", {"multiline": True}),
-                "model": (get_gpt_models(), {"default": "@cf/meta/llama-2-7b-chat-int8"}),
+                "model": (get_gpt_models(context), {"default": "@cf/meta/llama-2-7b-chat-int8"}),
                 "behaviour": (["tags","description"], {"default": "description"}),
             },
             "optional": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            },
+            "hidden": {
+                "CONTEXT": "EXECUTION_CONTEXT",
             }
         }
 
@@ -213,12 +234,12 @@ class O_ChatGPT_O:
     FUNCTION = "fun"  # Define the function name for the node
     CATEGORY = "O/OpenAI"  # Define the category for the node
 
-    def fun(self,  model, prompt,behaviour, seed):
+    def fun(self,  model, prompt,behaviour, seed, context: execution_context.ExecutionContext):
         install_openai()  # Install the OpenAI module if not already installed
         #import openai  # Import the OpenAI module
         from openai import OpenAI
         # Get the API key from the file
-        api_key = get_api_key()
+        api_key = get_api_key(context)
         client = OpenAI(
                     # This is the default and can be omitted
                     api_key=api_key,
@@ -257,16 +278,19 @@ class O_ChatGPT_medium_O:
     """
     # Define the input types for the node
     @classmethod
-    def INPUT_TYPES(cls):
+    def INPUT_TYPES(cls, context: execution_context.ExecutionContext):
         return {
             "required": {
                 # Multiline string input for the prompt
                 "prompt": ("STRING", {"multiline": True}),
                 "initMsg": ("STRING", {"multiline": True, "default": get_init_message()}),
-                "model": (get_gpt_models(), {"default": "gpt-3.5-turbo"}),
+                "model": (get_gpt_models(context), {"default": "gpt-3.5-turbo"}),
             },
             "optional": {
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            },
+            "hidden": {
+                "CONTEXT": "EXECUTION_CONTEXT",
             }
         }
 
@@ -274,12 +298,12 @@ class O_ChatGPT_medium_O:
     FUNCTION = "fun"  # Define the function name for the node
     CATEGORY = "O/OpenAI"  # Define the category for the node
 
-    def fun(self,  model, prompt, initMsg, seed):
+    def fun(self,  model, prompt, initMsg, seed, context: execution_context.ExecutionContext):
         install_openai()  # Install the OpenAI module if not already installed
         #import openai  # Import the OpenAI module
         from openai import OpenAI
         # Get the API key from the file
-        api_key = get_api_key()
+        api_key = get_api_key(context)
 
         #openai.api_key = api_key  # Set the API key for the OpenAI module
         client = OpenAI(
@@ -410,12 +434,12 @@ class openAi_chat_completion_O:
     """
     # Define the input types for the node
     @classmethod
-    def INPUT_TYPES(cls):
+    def INPUT_TYPES(cls, context: execution_context.ExecutionContext):
         return {
             "required": {
                 "client": ("CLIENT", ),
                 # "model": ("STRING", {"multiline": False, "default": "gpt-3.5-turbo"}),
-                "model": (get_gpt_models(), {"default": "gpt-3.5-turbo"}),
+                "model": (get_gpt_models(context), {"default": "gpt-3.5-turbo"}),
                 "messages": ("OPENAI_CHAT_MESSAGES", ),
             },
             "optional": {
@@ -911,6 +935,9 @@ class saveTextToFile_O:
             },
             "optional": {
                 "append": (["true", "false"], {"default": True})
+            },
+            "hidden": {
+                "CONTEXT": "EXECUTION_CONTEXT",
             }
         }
 
@@ -919,19 +946,19 @@ class saveTextToFile_O:
     FUNCTION = "fun"
     CATEGORY = "O/text"
 
-    def fun(self, text, filename, append):
+    def fun(self, text, filename, append, context: execution_context.ExecutionContext):
         # append dateTime
         current_time = time.strftime("%d/%m/%Y %H:%M:%S")  # dd/mm/YY H:M:S
         textToSave = f'{current_time}:  \n'
         # append text in new line
         textToSave += f' {text}  \n\n'
 
-        self.saveTextToFile(textToSave, filename, append)
+        self.saveTextToFile(context, textToSave, filename, append)
 
         return (textToSave, )
 
-    def saveTextToFile(self, text, filename, append):
-        saveDir = os.path.join(SUIT_DIR, "output")
+    def saveTextToFile(self, context: execution_context.ExecutionContext, text, filename, append):
+        saveDir = folder_paths.get_output_directory(context.user_hash)
         saveFile = os.path.join(saveDir, filename)
 
         # Create directory if it does not exist
@@ -947,23 +974,15 @@ class saveTextToFile_O:
             print(f'{PACKAGE_NAME}:error writing to file {saveFile}')
 
 
-fonts = None
-
-
-def loadFonts():
-
-    global fonts
-    if (fonts != None):
-        return fonts
+def loadFonts(context: execution_context.ExecutionContext):
     try:
-        fonts_filepath = os.path.join(SUIT_DIR, "fonts")
+        fonts_filepath = os.path.join(folder_paths.get_user_directory(context.user_hash), "fonts")
         fonts = []
         for file in os.listdir(fonts_filepath):
             if file.endswith(".ttf") or file.endswith(".otf") or file.endswith(".ttc") or file.endswith(".TTF") or file.endswith(".OTF") or file.endswith(".TTC"):
                 fonts.append(file)
     except:
         fonts = []
-
         if (len(fonts) == 0):
             print(f'{PACKAGE_NAME}:no fonts found in {fonts_filepath}')
             fonts = ["Arial.ttf"]
@@ -976,14 +995,15 @@ class Text2Image_O:
     """
 
     def __init__(self):
-        self.font_filepath = os.path.join(SUIT_DIR, "fonts")
+        # self.font_filepath = os.path.join(SUIT_DIR, "fonts")
+        pass
 
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(s, context: execution_context.ExecutionContext):
         return {
             "required": {
                 "text": ("STRING", {"multiline": True}),
-                "font": (loadFonts(), {"default": loadFonts()[0], }),
+                "font": (loadFonts(context), {"default": loadFonts(context)[0], }),
                 "size": ("INT", {"default": 36, "min": 0, "max": 255, "step": 1}),
                 "font_R": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
                 "font_G": ("INT", {"default": 0, "min": 0, "max": 255, "step": 1}),
@@ -998,6 +1018,9 @@ class Text2Image_O:
                 "expand": (["true", "false"], {"default": "true"}),
                 "x": ("INT", {"default": 0, "min": -100, "step": 1}),
                 "y": ("INT", {"default": 0, "min": -100, "step": 1}),
+            },
+            "hidden": {
+                "CONTEXT": "EXECUTION_CONTEXT",
             }
         }
 
@@ -1006,12 +1029,12 @@ class Text2Image_O:
     OUTPUT_NODE = False
     CATEGORY = "O/text"
 
-    def create_image_new(self, text, font, size, font_R, font_G, font_B, font_A, background_R, background_G, background_B, background_A, width, height, expand, x, y):
+    def create_image_new(self, text, font, size, font_R, font_G, font_B, font_A, background_R, background_G, background_B, background_A, width, height, expand, x, y, context: execution_context.ExecutionContext):
         font_color = (font_R, font_G, font_B, font_A)
         background_color = (background_R, background_G,
                             background_B, background_A)
 
-        font_path = os.path.join(self.font_filepath, font)
+        font_path = os.path.join(folder_paths.get_user_directory(context.user_hash), "fonts", font)
         font = ImageFont.truetype(font_path, size)
 
         # Initialize the drawing context
@@ -1069,7 +1092,7 @@ def laodNSP():
     if (nspterminology != None):
         return nspterminology
     # Fetch the NSP Pantry
-    local_pantry = os.path.join(SUIT_DIR, "nsp_pantry.json")
+    local_pantry = os.path.join(O_SUIT_DIR, "nsp_pantry.json")
 
     if not os.path.exists(local_pantry):
         print(f'{PACKAGE_NAME}:downloading NSP')
@@ -1660,18 +1683,18 @@ class QOL_SplitString:
 # Define the node class mappings
 NODE_CLASS_MAPPINGS = {
     # openAITools------------------------------------------
-    "ChatGPT Simple _O": O_ChatGPT_O,
-    "ChatGPT compact _O": O_ChatGPT_medium_O,
+    # "ChatGPT Simple _O": O_ChatGPT_O,
+    # "ChatGPT compact _O": O_ChatGPT_medium_O,
     # openAiTools > Advanced
-    "load_openAI _O": load_openAI_O,
+    # "load_openAI _O": load_openAI_O,
     # openAiTools > Advanced > ChatGPT
-    "Chat_Message _O": openAi_chat_message_O,
-    "combine_chat_messages _O": openAi_chat_messages_Combine_O,
-    "Chat completion _O": openAi_chat_completion_O,
+    # "Chat_Message _O": openAi_chat_message_O,
+    # "combine_chat_messages _O": openAi_chat_messages_Combine_O,
+    # "Chat completion _O": openAi_chat_completion_O,
     # openAiTools > Advanced > image
-    "create image _O": openAi_Image_create_O,
+    # "create image _O": openAi_Image_create_O,
     # "Edit_image _O": openAi_Image_Edit, # coming soon
-    "variation_image _O": openAi_Image_variation_O,
+    # "variation_image _O": openAi_Image_variation_O,
     # latentTools------------------------------------------
     "LatentUpscaleFactor _O": LatentUpscaleFactor_O,
     "LatentUpscaleFactorSimple _O": LatentUpscaleFactorSimple_O,
@@ -1684,7 +1707,7 @@ NODE_CLASS_MAPPINGS = {
     "QOL Split String": QOL_SplitString,
     "Trim Text _O": trim_text_O,
     "Replace Text _O": replace_text_O,
-    "saveTextToFile _O": saveTextToFile_O,
+    # "saveTextToFile _O": saveTextToFile_O,
     "Text2Image _O": Text2Image_O,
     # ImageTools------------------------------------------
     "ImageScaleFactor _O": ImageScaleFactor_O,
@@ -1698,10 +1721,10 @@ NODE_CLASS_MAPPINGS = {
     "GetImage_(Width&Height) _O": GetImageWidthAndHeight_O,
     "GetLatent_(Width&Height) _O": GetLatentWidthAndHeight_O,
     # debug------------------------------------------
-    "debug messages_O": DebugOpenAIChatMEssages_O,
-    "debug Completeion _O": DebugOpenAIChatCompletion_O,
-    "Debug Text _O": DebugText_O,
-    "Debug Text route _O": DebugTextRoute_O,
+    # "debug messages_O": DebugOpenAIChatMEssages_O,
+    # "debug Completeion _O": DebugOpenAIChatCompletion_O,
+    # "Debug Text _O": DebugText_O,
+    # "Debug Text route _O": DebugTextRoute_O,
     # Utils------------------------------------------
     "Note _O": Note_O,
     "Text _O": Text_O,
